@@ -25,6 +25,92 @@
 
 ## 本地一键运行
 
+### 推荐方式：先创建虚拟环境
+
+建议先在项目根目录创建独立 Python 虚拟环境，避免依赖安装到系统全局环境。
+
+#### 1. 确认 Python 版本
+
+本项目要求 `Python 3.3+`，推荐 `Python 3.10+`。
+
+```bash
+python3 --version
+```
+
+如果你的系统中 `python` 命令已经指向 Python 3，也可以使用：
+
+```bash
+python --version
+```
+
+#### 2. 进入项目根目录
+
+```bash
+cd /path/to/Signal-Linear-System-WuDaZheng-Simulator
+```
+
+#### 3. 创建名为 `venv` 的虚拟环境
+
+```bash
+python3 -m venv venv
+```
+
+如果你的环境中 `python` 已绑定到 Python 3，也可以执行：
+
+```bash
+python -m venv venv
+```
+
+#### 4. 激活虚拟环境
+
+macOS / Linux:
+
+```bash
+source venv/bin/activate
+```
+
+Windows `cmd`:
+
+```bat
+venv\Scripts\activate
+```
+
+Windows PowerShell:
+
+```powershell
+venv\Scripts\Activate.ps1
+```
+
+激活成功后，命令行前通常会出现类似 `(venv)` 的前缀。
+
+#### 5. 验证当前 Python 与 pip 已指向虚拟环境
+
+```bash
+python --version
+which python
+pip --version
+```
+
+如果输出路径位于项目目录下的 `venv/` 中，说明当前依赖会安装到虚拟环境，而不是系统全局环境。
+
+#### 6. 安装项目依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+#### 7. 启动项目
+
+```bash
+python -m streamlit run app.py
+```
+
+#### 8. 退出虚拟环境
+
+```bash
+deactivate
+```
+
 ### 方式一：命令行启动
 
 ```bash
@@ -38,6 +124,16 @@ python -m streamlit run app.py
 
 直接双击项目根目录下的 `一键启动.bat`。
 
+## 虚拟环境实施记录
+
+当前仓库已完成一次标准虚拟环境验证，实施结果如下：
+
+- 已确认 Python 版本为 `Python 3.13.5`
+- 已在项目根目录成功创建 `venv` 虚拟环境
+- 已通过 `source venv/bin/activate` 激活并验证 `python`、`pip` 路径均指向 `venv`
+- 已执行 `pip install -r requirements.txt`，依赖安装位置位于项目内虚拟环境
+- 已完成关键模块导入检查、`app.py` 编译检查与 `Streamlit` 应用启动验证
+
 ## Streamlit Cloud 免费部署教程
 
 1. 将本项目完整上传到 GitHub 仓库
@@ -48,13 +144,49 @@ python -m streamlit run app.py
 6. 保持依赖文件为 `requirements.txt`
 7. 点击部署，等待平台自动安装依赖并启动
 
+## macOS 原生打包
+
+项目已补充 macOS 原生 `.app` 打包流水线，适合本地分发、课程演示和后续正式签名发布。
+
+### 一键构建
+
+```bash
+bash scripts/macos/build_macos.sh
+```
+
+默认生成：
+
+- `dist/Signal-Linear-System-WuDazheng.app`
+- `dist/Signal-Linear-System-WuDazheng.app/Contents/MacOS/Signal-Linear-System-WuDazheng`
+- `dist/Signal-Linear-System-WuDazheng.zip`
+
+### 签名与公证
+
+- 若设置 `APPLE_DEVELOPER_IDENTITY`，构建脚本会执行正式签名
+- 若未设置证书，则会执行 `ad-hoc` 签名，便于本机测试
+- 公证脚本：
+
+```bash
+bash scripts/macos/notarize_macos.sh
+```
+
+### 相关文档
+
+- 构建与安装说明：`docs/macos-build-and-install.md`
+- 测试报告：`docs/macos-test-report.md`
+
 ## 项目结构
 
 ```text
 Signal-Linear-System-WuDaZheng-Simulator/
 ├── app.py
+├── macos_launcher.py
+├── requirements-macos-build.txt
 ├── requirements.txt
 ├── README.md
+├── docs/
+├── packaging/
+├── scripts/
 ├── .gitignore
 └── 一键启动.bat
 ```

@@ -189,3 +189,9 @@ cython_debug/
 # IDE
 .idea/
 .vscode/
+
+# Build artifacts
+build/
+dist/
+.pyinstaller/
+*.spec
