@@ -134,16 +134,6 @@ python -m streamlit run app.py
 - 已执行 `pip install -r requirements.txt`，依赖安装位置位于项目内虚拟环境
 - 已完成关键模块导入检查、`app.py` 编译检查与 `Streamlit` 应用启动验证
 
-## Streamlit Cloud 免费部署教程
-
-1. 将本项目完整上传到 GitHub 仓库
-2. 访问 [Streamlit Community Cloud](https://streamlit.io/cloud)
-3. 使用 GitHub 账号登录并授权仓库访问
-4. 创建新应用并选择本仓库
-5. 将主入口设置为 `app.py`
-6. 保持依赖文件为 `requirements.txt`
-7. 点击部署，等待平台自动安装依赖并启动
-
 ## macOS 原生打包
 
 项目已补充 macOS 原生 `.app` 打包流水线，适合本地分发、课程演示和后续正式签名发布。
