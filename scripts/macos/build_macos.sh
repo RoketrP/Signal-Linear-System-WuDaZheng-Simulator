@@ -32,7 +32,14 @@ echo "[3/8] 安装打包依赖"
 python -m pip install -r requirements-macos-build.txt
 
 echo "[4/8] 清理旧构建目录"
-rm -rf build dist
+python - <<'PY'
+from pathlib import Path
+import shutil
+
+for folder in (Path("build"), Path("dist")):
+    if folder.exists():
+        shutil.rmtree(folder)
+PY
 
 echo "[5/8] 使用 PyInstaller 生成 macOS .app 包"
 pyinstaller \

@@ -10,7 +10,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 from scipy import signal
 from scipy.fft import fft, fftfreq, fftshift
-from scipy.integrate import cumulative_trapezoid
+from scipy.integrate import cumulative_trapezoid, trapezoid
 
 st.set_page_config(
     page_title="Signal-Linear-System-WuDazheng",
@@ -730,7 +730,7 @@ def render_ch1_sec4():
         du = np.gradient(u, t)
         if mode == "冲激近似":
             render_chart("单位冲激的窄脉冲近似", t, [{"name": "δ(t) 近似", "y": delta}], "ch1s4_delta", "t / s", "幅值")
-            st.metric("近似积分面积", f"{np.trapz(delta, t):.4f}")
+            st.metric("近似积分面积", f"{trapezoid(delta, t):.4f}")
         elif mode == "阶跃函数":
             pulse = rect(t, width=width)
             render_chart("阶跃与矩形脉冲", t, [{"name": "u(t)", "y": u}, {"name": "rect(t)", "y": pulse}], "ch1s4_step", "t / s", "幅值")
@@ -859,10 +859,10 @@ def render_ch2_sec4():
         fig.add_trace(go.Scatter(x=tau, y=h_tau, mode="lines", name="h(t-τ)"), row=1, col=1)
         fig.add_trace(go.Scatter(x=tau, y=product, mode="lines", name="乘积"), row=1, col=1)
         fig.add_trace(go.Scatter(x=tau, y=y_all, mode="lines", name="y(t)"), row=2, col=1)
-        fig.add_trace(go.Scatter(x=[t0], y=[np.trapz(product, tau)], mode="markers", name="当前 y(t0)"), row=2, col=1)
+        fig.add_trace(go.Scatter(x=[t0], y=[trapezoid(product, tau)], mode="markers", name="当前 y(t0)"), row=2, col=1)
         fig.update_layout(height=680, margin=dict(l=40, r=20, t=80, b=30))
         st.plotly_chart(fig, use_container_width=True, key="ch2s4_plot")
-        st.metric("当前卷积积分值 y(t0)", f"{np.trapz(product, tau):.4f}")
+        st.metric("当前卷积积分值 y(t0)", f"{trapezoid(product, tau):.4f}")
     note_block("4. 卷积积分动态分步演示")
 
 
@@ -1016,7 +1016,7 @@ def render_ch4_sec1():
         coeffs = []
         for k in range(1, harmonics + 1):
             phi = np.sin((2 * k - 1) * t)
-            ck = np.trapz(x * phi, t) / np.trapz(phi * phi, t)
+            ck = trapezoid(x * phi, t) / trapezoid(phi * phi, t)
             coeffs.append((2 * k - 1, ck))
             recon += ck * phi
         render_chart("正交函数分解与重构", t, [{"name": "原信号", "y": x}, {"name": "正交展开重构", "y": recon}], "ch4s1_main", "t", "幅值")
