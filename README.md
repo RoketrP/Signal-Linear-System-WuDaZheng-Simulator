@@ -208,3 +208,7 @@ Signal-Linear-System-WuDaZheng-Simulator/
 ## License
 
 本仓库保留原有 `LICENSE` 文件，请结合仓库许可证使用。
+
+## 开发贡献人员
+- Shiyu Chen
+- Xinqi Guo
