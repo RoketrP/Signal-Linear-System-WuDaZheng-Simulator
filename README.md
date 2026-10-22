@@ -7,7 +7,7 @@
 - 严格按教材章节顺序组织侧边栏导航
 - 每个小节提供独立参数面板与实时波形/频谱/零极点可视化
 - 支持快速示例、参数重置、图像下载
-- 全程本地计算，无网络请求，保护学习数据与隐私
+- 仿真计算在本地完成，默认关闭 Streamlit 使用统计；首次安装依赖需要联网
 - 单文件主程序，结构清晰，便于二次开发和教学演示
 
 ## 教材适配说明
@@ -31,7 +31,7 @@
 
 #### 1. 确认 Python 版本
 
-本项目要求 `Python 3.3+`，推荐 `Python 3.10+`。
+本项目要求 `Python 3.10+` 和 `Streamlit 1.51+`。
 
 ```bash
 python3 --version
@@ -91,6 +91,8 @@ which python
 pip --version
 ```
 
+Windows 中用 `where.exe python` 代替 `which python`。
+
 如果输出路径位于项目目录下的 `venv/` 中，说明当前依赖会安装到虚拟环境，而不是系统全局环境。
 
 #### 6. 安装项目依赖
@@ -122,17 +124,31 @@ python -m streamlit run app.py
 
 ### 方式二：Windows 双击启动
 
-直接双击项目根目录下的 `一键启动.bat`。
+直接双击项目根目录下的 `一键启动.bat`。脚本会创建并复用项目内的 `.venv`，通过该环境安装依赖和启动应用，不会把依赖安装到系统全局环境。安装失败会停止并显示错误。
 
-## 虚拟环境实施记录
+默认仅监听 `127.0.0.1`。如默认端口被占用，可指定其他端口：
 
-当前仓库已完成一次标准虚拟环境验证，实施结果如下：
+```bash
+python -m streamlit run app.py --server.port 8502
+```
 
-- 已确认 Python 版本为 `Python 3.13.5`
-- 已在项目根目录成功创建 `venv` 虚拟环境
-- 已通过 `source venv/bin/activate` 激活并验证 `python`、`pip` 路径均指向 `venv`
-- 已执行 `pip install -r requirements.txt`，依赖安装位置位于项目内虚拟环境
-- 已完成关键模块导入检查、`app.py` 编译检查与 `Streamlit` 应用启动验证
+## 计算约定与验证
+
+- 连续傅里叶变换使用 `X(f)=∫x(t)e^(-j2πft)dt`，FFT 包含采样间隔和时间原点修正；DFT 小节仍使用离散定义。
+- 连续卷积保留完整长度，输出时间轴从两路输入起点之和开始；有限采样窗会产生截断和数值积分误差。
+- 逆拉普拉斯与逆 Z 变换支持重复极点，展示部分分式中分母的幂次。
+- 方波功率谱展示双边复指数系数的平方；三角波原信号与正弦级数采用相同相位。
+- 能量与平均功率数值标明有限观测窗，避免与全时域理论值混淆。
+
+运行回归检查（无需额外测试依赖）：
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+测试覆盖解析解、全部 43 个小节、快速示例、参数重置、所有下拉分支、采样临界频率及 PNG 文件可读性。GitHub Actions 在 Windows / Linux 和 Python 3.10 / 3.13 上自动执行。详细修复依据见 [维护说明](docs/maintenance-2026-10.md)。
+
+PNG 导出优先使用系统已安装的微软雅黑、苹方、Noto CJK 等中文字体。若 Linux 导出图中文字缺失，请安装中文字体（例如 `fonts-noto-cjk`）后重启应用。
 
 ## macOS 原生打包
 
@@ -177,6 +193,9 @@ Signal-Linear-System-WuDaZheng-Simulator/
 ├── docs/
 ├── packaging/
 ├── scripts/
+├── tests/
+├── .github/workflows/tests.yml
+├── .streamlit/config.toml
 ├── .gitignore
 └── 一键启动.bat
 ```
