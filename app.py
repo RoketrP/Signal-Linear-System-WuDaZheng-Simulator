@@ -4,6 +4,7 @@ from collections import OrderedDict
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
@@ -12,22 +13,30 @@ from scipy import signal
 from scipy.fft import fft, fftfreq, fftshift
 from scipy.integrate import cumulative_trapezoid, trapezoid
 
-st.set_page_config(
-    page_title="Signal-Linear-System-WuDazheng",
-    page_icon="📘",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# Prefer installed Chinese fonts so downloaded PNGs retain their labels.
+_installed_fonts = {font.name for font in font_manager.fontManager.ttflist}
+_cjk_fonts = [name for name in ("Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Zen Hei", "SimHei") if name in _installed_fonts]
+plt.rcParams["font.sans-serif"] = _cjk_fonts + ["DejaVu Sans"]
+plt.rcParams["axes.unicode_minus"] = False
 
-st.markdown(
-    """
-    <style>
-    .stMetric {background: #f7f9fc; padding: 10px; border-radius: 8px;}
-    .main .block-container {padding-top: 1.5rem; padding-bottom: 2rem;}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+
+def configure_page():
+    st.set_page_config(
+        page_title="Signal-Linear-System-WuDazheng",
+        page_icon="📘",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    st.markdown(
+        """
+        <style>
+        .stMetric {background: #f7f9fc; padding: 10px; border-radius: 8px;}
+        .main .block-container {padding-top: 1.5rem; padding-bottom: 2rem;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 BOOK_STRUCTURE = OrderedDict(
     {
@@ -483,10 +492,11 @@ def energy_power_continuous(x, t):
     return energy, power
 
 
-def fft_spectrum(x, dt):
+def fft_spectrum(x, dt, t_start=0.0):
+    """Approximate ∫x(t)exp(-j2πft)dt on a uniform time grid."""
     n = len(x)
     f = fftshift(fftfreq(n, d=dt))
-    X = fftshift(fft(x))
+    X = dt * fftshift(fft(x)) * np.exp(-2j * np.pi * f * t_start)
     return f, X
 
 
@@ -523,13 +533,14 @@ def render_chart(title, x, traces, key, xlabel="自变量", ylabel="幅值", dis
     fig.update_layout(title=title, xaxis_title=xlabel, yaxis_title=ylabel, height=420, margin=dict(l=40, r=20, t=60, b=40), legend=dict(orientation="h"))
     fig.update_xaxes(showgrid=True, zeroline=True)
     fig.update_yaxes(showgrid=True, zeroline=True)
-    st.plotly_chart(fig, use_container_width=True, key=f"plot_{key}")
+    st.plotly_chart(fig, width="stretch", key=f"plot_{key}")
     st.download_button(
         "下载当前图像 PNG",
         data=make_png_bytes(x, traces, title, xlabel, ylabel, discrete=discrete),
         file_name=f"{key}.png",
         mime="image/png",
         key=f"download_{key}",
+        on_click="ignore",
     )
 
 
@@ -547,16 +558,16 @@ def render_pole_zero_chart(zeros, poles, title, key, xlim=(-2.5, 2.5), ylim=(-2.
     fig.update_layout(title=title, xaxis_title="实部", yaxis_title="虚部", height=400, margin=dict(l=40, r=20, t=60, b=40))
     fig.update_xaxes(range=list(xlim), scaleanchor="y", scaleratio=1)
     fig.update_yaxes(range=list(ylim))
-    st.plotly_chart(fig, use_container_width=True, key=f"pz_{key}")
+    st.plotly_chart(fig, width="stretch", key=f"pz_{key}")
 
 
 def control_buttons(prefix, defaults, example):
     c1, c2 = st.columns(2)
-    if c1.button("快速示例", key=f"{prefix}_example_btn", use_container_width=True):
+    if c1.button("快速示例", key=f"{prefix}_example_btn", width="stretch"):
         for name, value in example.items():
             st.session_state[f"{prefix}_{name}"] = value
         st.rerun()
-    if c2.button("重置参数", key=f"{prefix}_reset_btn", use_container_width=True):
+    if c2.button("重置参数", key=f"{prefix}_reset_btn", width="stretch"):
         for name, value in defaults.items():
             st.session_state[f"{prefix}_{name}"] = value
         st.rerun()
@@ -673,9 +684,10 @@ def render_ch1_sec2():
         energy, power = energy_power_continuous(x, t)
         render_chart("信号波形与能量/功率判定", t, [{"name": "x(t)", "y": x}], "ch1s2_main", "t / s", "幅值")
         c1, c2, c3 = st.columns(3)
-        c1.metric("数值近似能量 E", f"{energy:.4f}")
-        c2.metric("数值近似平均功率 P", f"{power:.4f}")
+        c1.metric("观测窗内能量 E", f"{energy:.4f}")
+        c2.metric("观测窗内平均功率 P", f"{power:.4f}")
         c3.metric("判定", periodicity)
+        st.caption("数值只覆盖当前有限时间窗。周期余弦的全时域能量为无穷大，理论平均功率为 A²/2；能量信号的全时域平均功率为 0。")
     note_block("2. 周期/非周期、能量/功率信号判定仿真")
 
 
@@ -853,15 +865,18 @@ def render_ch2_sec4():
         x_tau = rect(tau - 0.5, width=1.5)
         h_tau = np.exp(-alpha * np.maximum(t0 - tau, 0)) * heaviside(t0 - tau)
         product = x_tau * h_tau
-        y_all = np.convolve(rect(tau - 0.5, width=1.5), np.exp(-alpha * np.maximum(tau, 0)) * heaviside(tau), mode="same") * (tau[1] - tau[0])
+        dt = tau[1] - tau[0]
+        h = np.exp(-alpha * np.maximum(tau, 0)) * heaviside(tau)
+        y_all = np.convolve(x_tau, h, mode="full") * dt
+        output_t = 2 * tau[0] + np.arange(len(y_all)) * dt
         fig = make_subplots(rows=2, cols=1, subplot_titles=("翻折-平移-相乘", "卷积结果 y(t)"))
         fig.add_trace(go.Scatter(x=tau, y=x_tau, mode="lines", name="x(τ)"), row=1, col=1)
         fig.add_trace(go.Scatter(x=tau, y=h_tau, mode="lines", name="h(t-τ)"), row=1, col=1)
         fig.add_trace(go.Scatter(x=tau, y=product, mode="lines", name="乘积"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=tau, y=y_all, mode="lines", name="y(t)"), row=2, col=1)
+        fig.add_trace(go.Scatter(x=output_t, y=y_all, mode="lines", name="y(t)"), row=2, col=1)
         fig.add_trace(go.Scatter(x=[t0], y=[trapezoid(product, tau)], mode="markers", name="当前 y(t0)"), row=2, col=1)
         fig.update_layout(height=680, margin=dict(l=40, r=20, t=80, b=30))
-        st.plotly_chart(fig, use_container_width=True, key="ch2s4_plot")
+        st.plotly_chart(fig, width="stretch", key="ch2s4_plot")
         st.metric("当前卷积积分值 y(t0)", f"{trapezoid(product, tau):.4f}")
     note_block("4. 卷积积分动态分步演示")
 
@@ -880,17 +895,24 @@ def render_ch2_sec5():
         x = np.exp(-alpha * t)
         h = rect(t - 1.0, width=1.4)
         g = heaviside(t) * np.exp(-0.5 * t)
-        conv1 = np.convolve(x, h, mode="same") * dt
-        conv2 = np.convolve(h, x, mode="same") * dt
-        assoc1 = np.convolve(np.convolve(x, h, mode="same") * dt, g, mode="same") * dt
-        assoc2 = np.convolve(x, np.convolve(h, g, mode="same") * dt, mode="same") * dt
-        deriv_conv = np.gradient(conv1, dt)
-        conv_deriv = np.convolve(np.gradient(x, dt), h, mode="same") * dt
-        render_chart("卷积性质数值验证", t, [{"name": "x*h", "y": conv1}, {"name": "h*x", "y": conv2}], "ch2s5_main", "t / s", "幅值")
+        # Keep full support at every stage: cropping intermediate convolutions breaks associativity.
+        conv1 = np.convolve(x, h, mode="full") * dt
+        conv2 = np.convolve(h, x, mode="full") * dt
+        assoc1 = np.convolve(conv1, g, mode="full") * dt
+        assoc2 = np.convolve(x, np.convolve(h, g, mode="full") * dt, mode="full") * dt
+        output_t = np.arange(len(conv1)) * dt
+        # For causal x(t)=exp(-αt)u(t), x'=-αx+δ(t). Include the jump at zero.
+        # The derivative is undefined at rectangular-pulse edges; exclude adjacent samples.
+        smooth = (h == np.roll(h, 1)) & (h == np.roll(h, -1))
+        visible = (t > 0) & (t < t[-1]) & smooth
+        deriv_conv = np.gradient(conv1, dt)[:len(t)][visible]
+        conv_deriv = (-alpha * conv1[:len(t)] + h)[visible]
+        render_chart("卷积性质数值验证", output_t, [{"name": "x*h", "y": conv1}, {"name": "h*x", "y": conv2}], "ch2s5_main", "t / s", "幅值")
         c1, c2, c3 = st.columns(3)
         c1.metric("交换律误差", f"{np.max(np.abs(conv1 - conv2)):.3e}")
         c2.metric("结合律误差", f"{np.max(np.abs(assoc1 - assoc2)):.3e}")
         c3.metric("微分性质误差", f"{np.max(np.abs(deriv_conv - conv_deriv)):.3e}")
+        st.caption("微分验证使用 x′(t)=-αx(t)+δ(t)，包含起点跳变；误差在 0<t<8 内计算，排除矩形脉冲边缘的不可导点及相邻采样点，有限步长会带来离散近似误差。")
     note_block("5. 卷积全部代数性质、微分积分性质仿真验证")
 
 
@@ -976,7 +998,7 @@ def render_ch3_sec4():
         fig.add_trace(go.Bar(x=np.arange(len(y)), y=y, name="y[n]"), row=2, col=1)
         fig.add_trace(go.Scatter(x=[n0], y=[y[n0]], mode="markers", name="当前 y[n0]"), row=2, col=1)
         fig.update_layout(height=680, barmode="group", margin=dict(l=40, r=20, t=80, b=30))
-        st.plotly_chart(fig, use_container_width=True, key="ch3s4_plot")
+        st.plotly_chart(fig, width="stretch", key="ch3s4_plot")
         st.metric("当前卷积和 y[n0]", f"{y[n0]:.4f}")
     note_block("4. 离散卷积和完整可视化")
 
@@ -993,8 +1015,9 @@ def render_ch3_sec5():
         x = np.array([1.0, 2.0, 1.0])
         h = np.array([1.0, -1.0, 2.0])
         y = np.convolve(x, h)
-        x_rec, _ = signal.deconvolve(y, h)
-        render_chart("反卷积恢复输入序列", np.arange(len(y)), [{"name": "卷积结果 y[n]", "y": scale * y}], "ch3s5_main", "n", "幅值", discrete=True)
+        observed_y = scale * y
+        x_rec, _ = signal.deconvolve(observed_y, h)
+        render_chart("反卷积恢复输入序列", np.arange(len(y)), [{"name": "观测输出 y[n]", "y": observed_y}], "ch3s5_main", "n", "幅值", discrete=True)
         st.write(f"原输入序列 x[n] = {np.round(x, 4).tolist()}")
         st.write(f"已知系统 h[n] = {np.round(h, 4).tolist()}")
         st.write(f"反卷积恢复 x[n] = {np.round(x_rec, 4).tolist()}")
@@ -1020,7 +1043,7 @@ def render_ch4_sec1():
             coeffs.append((2 * k - 1, ck))
             recon += ck * phi
         render_chart("正交函数分解与重构", t, [{"name": "原信号", "y": x}, {"name": "正交展开重构", "y": recon}], "ch4s1_main", "t", "幅值")
-        st.dataframe({"谐波序号": [k for k, _ in coeffs], "投影系数 c_k": [round(v, 5) for _, v in coeffs]}, use_container_width=True)
+        st.dataframe({"谐波序号": [k for k, _ in coeffs], "投影系数 c_k": [round(v, 5) for _, v in coeffs]}, width="stretch")
     note_block("1. 信号正交函数分解原理")
 
 
@@ -1047,7 +1070,7 @@ def render_ch4_sec2():
                 amps.append(abs(amp))
             symmetry = "奇函数，仅含正弦项"
         else:
-            x = signal.sawtooth(t, width=0.5)
+            x = signal.sawtooth(t + np.pi / 2, width=0.5)
             series = np.zeros_like(t)
             ks = np.arange(1, harmonics + 1)
             amps = []
@@ -1058,7 +1081,7 @@ def render_ch4_sec2():
                 amps.append(abs(amp))
             symmetry = "奇函数，仅含奇次正弦谐波"
         render_chart("傅里叶级数逼近", t, [{"name": "原周期信号", "y": x}, {"name": "级数重构", "y": series}], "ch4s2_main", "ω0 t", "幅值")
-        render_chart("奇偶函数频谱线图", ks, [{"name": "谐波幅值", "y": amps}], "ch4s2_spectrum", "谐波序号", "幅值", discrete=True)
+        render_chart("奇偶函数频谱线图", 2 * ks - 1, [{"name": "谐波幅值", "y": amps}], "ch4s2_spectrum", "谐波序号", "幅值", discrete=True)
         st.success(f"对称性判定：{symmetry}")
     note_block("2. 周期信号傅里叶级数、奇偶函数频谱")
 
@@ -1079,12 +1102,12 @@ def render_ch4_sec3():
             x = rect(t, width=1.2)
         else:
             x = np.cos(2 * np.pi * freq * t) + 0.6 * np.sin(2 * np.pi * 0.5 * freq * t)
-        f, X = fft_spectrum(x, dt)
+        f, X = fft_spectrum(x, dt, t_start=t[0])
         fig = make_subplots(rows=2, cols=1, subplot_titles=("幅度谱", "相位谱"))
         fig.add_trace(go.Scatter(x=f, y=np.abs(X), mode="lines", name="|X(f)|"), row=1, col=1)
         fig.add_trace(go.Scatter(x=f, y=np.angle(X), mode="lines", name="∠X(f)"), row=2, col=1)
         fig.update_layout(height=660, margin=dict(l=40, r=20, t=80, b=30))
-        st.plotly_chart(fig, use_container_width=True, key="ch4s3_plot")
+        st.plotly_chart(fig, width="stretch", key="ch4s3_plot")
     note_block("3. 周期/非周期信号幅度谱、相位谱绘制")
 
 
@@ -1111,8 +1134,8 @@ def render_ch4_sec4():
         else:
             y = np.exp(-(scale * t) ** 2)
             desc = "尺度性质：时域压缩导致频域展宽。"
-        f, X = fft_spectrum(x, dt)
-        _, Y = fft_spectrum(y, dt)
+        f, X = fft_spectrum(x, dt, t_start=t[0])
+        _, Y = fft_spectrum(y, dt, t_start=t[0])
         render_chart("时域信号对比", t, [{"name": "原信号 x(t)", "y": x}, {"name": "变换后 y(t)", "y": y}], "ch4s4_time", "t / s", "幅值")
         render_chart("频域幅度谱对比", f, [{"name": "|X(f)|", "y": np.abs(X)}, {"name": "|Y(f)|", "y": np.abs(Y)}], "ch4s4_freq", "f / Hz", "幅度")
         st.success(desc)
@@ -1131,11 +1154,14 @@ def render_ch4_sec5():
         t = np.linspace(-6, 6, 2048)
         dt = t[1] - t[0]
         pulse = rect(t, width=width)
-        f, X = fft_spectrum(pulse, dt)
-        square_coeffs = 4 / (np.pi * (2 * np.arange(1, 8) - 1))
+        f, X = fft_spectrum(pulse, dt, t_start=t[0])
+        positive_harmonics = 2 * np.arange(1, 8) - 1
+        harmonics = np.concatenate([-positive_harmonics[::-1], positive_harmonics])
+        square_coeffs = 2 / (1j * np.pi * harmonics)
         power_lines = np.abs(square_coeffs) ** 2
         render_chart("能量谱 |X(f)|^2", f, [{"name": "能量谱", "y": np.abs(X) ** 2}], "ch4s5_energy", "f / Hz", "谱密度")
-        render_chart("周期方波功率谱线", np.arange(1, 8), [{"name": "|C_k|^2", "y": power_lines}], "ch4s5_power", "奇次谐波序号", "功率", discrete=True)
+        render_chart("周期方波双边功率谱线", harmonics, [{"name": "|C_k|^2", "y": power_lines}], "ch4s5_power", "谐波序号 k", "功率", discrete=True)
+        st.caption("单位幅值方波：Cₖ=2/(jπk)，k 为非零奇数；正负频率功率之和随项数增加趋于平均功率 1。")
     note_block("5. 能量谱、功率谱、周期信号傅里叶变换")
 
 
@@ -1158,7 +1184,7 @@ def render_ch4_sec6():
         fig.add_trace(go.Scatter(x=w, y=np.abs(H), mode="lines", name="|H(jω)|"), row=1, col=1)
         fig.add_trace(go.Scatter(x=w, y=np.angle(H), mode="lines", name="∠H(jω)"), row=2, col=1)
         fig.update_layout(height=650, margin=dict(l=40, r=20, t=80, b=30))
-        st.plotly_chart(fig, use_container_width=True, key="ch4s6_response")
+        st.plotly_chart(fig, width="stretch", key="ch4s6_response")
         render_chart("频域分析对应的时域输出", t, [{"name": "输入 x(t)", "y": x}, {"name": "输出 y(t)", "y": y}], "ch4s6_time", "t / s", "幅值")
     note_block("6. LTI系统频率响应、频域完整分析")
 
@@ -1176,10 +1202,11 @@ def render_ch4_sec7():
         t = np.linspace(-4, 4, 2048)
         dt = t[1] - t[0]
         x = np.sinc(1.2 * t) + 0.4 * np.cos(2 * np.pi * 3.0 * t)
-        f, X = fft_spectrum(x, dt)
+        f, X = fft_spectrum(x, dt, t_start=t[0])
         ideal_mask = (np.abs(f) <= fc).astype(float)
         Y = X * ideal_mask * np.exp(-1j * 2 * np.pi * f * delay)
-        y = np.real(np.fft.ifft(np.fft.ifftshift(Y)))
+        # Undo the continuous-transform scaling and time-origin phase before the inverse FFT.
+        y = np.real(np.fft.ifft(np.fft.ifftshift(Y * np.exp(2j * np.pi * f * t[0]))) / dt)
         render_chart("无失真传输与理想低通输出", t, [{"name": "输入 x(t)", "y": x}, {"name": "输出 y(t)", "y": y}], "ch4s7_time", "t / s", "幅值")
         render_chart("滤波前后频谱", f, [{"name": "|X(f)|", "y": np.abs(X)}, {"name": "|Y(f)|", "y": np.abs(Y)}], "ch4s7_freq", "f / Hz", "幅度")
     note_block("7. 无失真传输、理想低通滤波器效果仿真")
@@ -1208,8 +1235,10 @@ def render_ch4_sec8():
         xr = sinc_reconstruct(ts, xs, t)
         render_chart("时域采样与重建", t, [{"name": "原连续信号", "y": x}, {"name": "重建信号", "y": xr}], "ch4s8_time", "t / s", "幅值")
         render_chart("采样点序列", ts, [{"name": "x(nTs)", "y": xs}], "ch4s8_samples", "t / s", "幅值", discrete=True)
-        verdict = "满足奈奎斯特采样条件" if fs >= 2 * 2.6 else "低于奈奎斯特频率，存在混叠风险"
-        st.success(verdict)
+        if fs > 2 * 2.6:
+            st.success("满足 fs > 2fmax；有限采样窗口仍会产生 sinc 截断误差。")
+        else:
+            st.warning("fs ≤ 2fmax：低于临界频率会混叠，恰好等于临界频率也无法保证任意相位信号的重建。")
     note_block("8. 奈奎斯特取样定理、时域/频域取样全过程演示")
 
 
@@ -1249,7 +1278,7 @@ def render_ch5_sec1():
             formula = f"X(s)=1/(s+{a:.2f}), ROC: Re(s) > {-a:.2f}"
             poles = np.array([-a + 0j])
         elif kind == "左边指数信号":
-            x = -np.exp(a * t) * (t <= 0).astype(float)
+            x = -np.exp(-a * t) * (t < 0).astype(float)
             formula = f"X(s)=1/(s+{a:.2f}), ROC: Re(s) < {-a:.2f}"
             poles = np.array([-a + 0j])
         else:
@@ -1272,7 +1301,7 @@ def render_ch5_sec2():
         prop = select_param(prefix, "property", "性质类型", ["线性性质", "时移性质", "求导性质", "卷积性质"], 2)
         a = slider_param(prefix, "a", "参数 a", 0.2, 2.0, 1.0, 0.1)
     with right:
-        sigma = np.linspace(-0.9, 4, 400)
+        sigma = np.linspace(-a + 0.05, 4, 400)
         if prop == "线性性质":
             lhs = 2 / (sigma + a) + 1 / (sigma + a + 1)
             rhs = lhs.copy()
@@ -1284,13 +1313,14 @@ def render_ch5_sec2():
         elif prop == "求导性质":
             lhs = sigma / (sigma + a) - 1
             rhs = -a / (sigma + a)
-            desc = "求导性质：L{dx/dt}=sX(s)-x(0-)"
+            desc = "对 t≥0 上 x(t)=e^(-at) 的常规导数：L{x′}=sX(s)-x(0+)，x(0+)=1；若将 x 延拓为 e^(-at)u(t)，广义导数还包含 δ(t)。"
         else:
             lhs = 1 / (sigma + a) ** 2
             rhs = lhs.copy()
             desc = "卷积性质：L{x*h}=X(s)H(s)"
         render_chart("拉普拉斯性质验证曲线", sigma, [{"name": "左式", "y": lhs}, {"name": "右式", "y": rhs}], "ch5s2_main", "σ (取 s=σ)", "数值")
         st.success(desc)
+        st.caption("只在收敛域 σ > -a 内比较，避开极点与发散区域。")
     note_block("2. 拉普拉斯变换全套性质逐一验证")
 
 
@@ -1308,11 +1338,16 @@ def render_ch5_sec3():
         den = np.polymul([1.0, a], [1.0, b])
         r, p, k = signal.residue(num, den)
         t = np.linspace(0, 8, 1200)
-        x = np.real(np.sum([ri * np.exp(pi * t) for ri, pi in zip(r, p)], axis=0)) * heaviside(t)
+        _, x = signal.impulse((num, den), T=t)
         render_chart("逆拉普拉斯后的时域信号", t, [{"name": "x(t)", "y": x}], "ch5s3_main", "t / s", "幅值")
         st.write("部分分式展开结果：")
-        for idx, (ri, pi) in enumerate(zip(r, p), start=1):
-            st.write(f"A{idx} = {ri:.4f}, 极点 p{idx} = {pi:.4f}")
+        order = 0
+        previous = None
+        for ri, pi in zip(r, p):
+            order = order + 1 if previous == pi else 1
+            st.write(f"{ri:.4f} / (s - ({pi:.4f}))^{order}")
+            previous = pi
+        st.caption("重极点项 A/(s-p)^m 对应 A·t^(m-1)·e^(pt)/(m-1)!；曲线由系统冲激响应计算。")
         if len(k):
             st.write(f"直接项：{k}")
     note_block("3. 拉普拉斯逆变换（查表法+部分分式展开）")
@@ -1444,10 +1479,12 @@ def render_ch6_sec2():
             y[0] = x[0]
             desc = "初值定理：x[0]=lim(z→∞)X(z)"
         elif prop == "终值定理":
-            y = np.ones_like(x) * x[-1]
+            y = np.zeros_like(x)
             desc = "终值定理：lim(n→∞)x[n]=lim(z→1)(1-z^{-1})X(z)"
         else:
-            y = x[::-1]
+            n = np.arange(-13, 14)
+            x = a ** np.maximum(n, 0) * (n >= 0)
+            y = a ** np.maximum(-n, 0) * (n <= 0)
             desc = "反转性质：x[-n] ↔ X(z^{-1})"
         render_chart("Z 变换性质对应序列变化", n, [{"name": "原序列 x[n]", "y": x}, {"name": "性质作用后", "y": y}], "ch6s2_main", "n", "幅值", discrete=True)
         st.success(desc)
@@ -1468,11 +1505,17 @@ def render_ch6_sec3():
         den = np.polymul([1.0, -a], [1.0, -b])
         r, p, k = signal.residuez(num, den)
         n = np.arange(0, 16)
-        x = np.real(np.sum([ri * (pi**n) for ri, pi in zip(r, p)], axis=0))
+        delta = (n == 0).astype(float)
+        x = signal.lfilter(num, den, delta)
         render_chart("逆 Z 变换得到的右边序列", n, [{"name": "x[n]", "y": x}], "ch6s3_main", "n", "幅值", discrete=True)
         st.write("部分分式展开结果：")
-        for idx, (ri, pi) in enumerate(zip(r, p), start=1):
-            st.write(f"A{idx} = {ri:.4f}, 极点 p{idx} = {pi:.4f}")
+        order = 0
+        previous = None
+        for ri, pi in zip(r, p):
+            order = order + 1 if previous == pi else 1
+            st.write(f"{ri:.4f} / (1 - ({pi:.4f})z^(-1))^{order}")
+            previous = pi
+        st.caption("重极点项 A/(1-pz⁻¹)^m 对应 A·C(n+m-1,m-1)·p^n·u[n]；曲线由差分方程递推计算。")
         if len(k):
             st.write(f"直接项：{k}")
     note_block("3. 逆Z变换：幂级数展开、部分分式法")
@@ -1512,7 +1555,9 @@ def render_ch6_sec5():
             b, a = np.array([1.0]), np.array([1.0, -0.65])
         else:
             b, a = np.array([1.0]), np.array([1.0, -1.2, 0.81])
-        z, p, _ = signal.tf2zpk(b, a)
+        # freqz uses z^-1 coefficients; tf2zpk uses descending powers of z.
+        order = max(len(a), len(b))
+        z, p, _ = signal.tf2zpk(np.pad(b, (0, order - len(b))), np.pad(a, (0, order - len(a))))
         w = np.linspace(0, np.pi, 800)
         _, h = signal.freqz(b, a, worN=w)
         render_pole_zero_chart(z, p, "H(z) 零极点分布", "ch6s5_pz", xlim=(-1.8, 1.8), ylim=(-1.8, 1.8), unit_circle=True)
@@ -1540,7 +1585,7 @@ def render_ch6_sec6():
         fig.add_trace(go.Scatter(x=np.cos(theta), y=np.sin(theta), mode="lines", name="单位圆"), row=1, col=2)
         fig.add_trace(go.Scatter(x=np.real(z_points), y=np.imag(z_points), mode="markers+text", text=[f"z{i+1}" for i in range(len(z_points))], name="z"), row=1, col=2)
         fig.update_layout(height=440, margin=dict(l=40, r=20, t=80, b=30))
-        st.plotly_chart(fig, use_container_width=True, key="ch6s6_plot")
+        st.plotly_chart(fig, width="stretch", key="ch6s6_plot")
         st.success("结论：s 平面左半平面映射到 z 平面单位圆内；虚轴映射为单位圆。")
     note_block("6. s域与z域映射关系")
 
@@ -1626,7 +1671,7 @@ def render_ch7_sec3():
         fig.add_trace(go.Scatter(x=[1, 1], y=[0, 0.8], mode="lines", name="H1 回路"))
         fig.add_trace(go.Scatter(x=[2, 2], y=[0, -0.8], mode="lines", name="H2 回路"))
         fig.update_layout(height=380, title="信号流图示意", margin=dict(l=40, r=20, t=60, b=30), showlegend=False)
-        st.plotly_chart(fig, use_container_width=True, key="ch7s3_graph")
+        st.plotly_chart(fig, width="stretch", key="ch7s3_graph")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("前向通路 P1", f"{P1:.4f}")
         c2.metric("回路 L1", f"{L1:.4f}")
@@ -1742,7 +1787,7 @@ def render_ch8_sec3():
     presets = {
         "完全可控可观测": {"A": np.array([[0.0, 1.0], [-2.0, -3.0]]), "B": np.array([[0.0], [1.0]]), "C": np.array([[1.0, 0.0]])},
         "不可控示例": {"A": np.array([[1.0, 0.0], [0.0, 2.0]]), "B": np.array([[1.0], [0.0]]), "C": np.array([[1.0, 1.0]])},
-        "不可观测示例": {"A": np.array([[1.0, 1.0], [0.0, 1.0]]), "B": np.array([[0.0], [1.0]]), "C": np.array([[1.0, 0.0]])},
+        "不可观测示例": {"A": np.array([[1.0, 0.0], [0.0, 2.0]]), "B": np.array([[1.0], [1.0]]), "C": np.array([[1.0, 0.0]])},
     }
     defaults = {"preset": "完全可控可观测"}
     example = {"preset": "不可控示例"}
@@ -1815,6 +1860,7 @@ RENDERERS = {
 
 
 def main():
+    configure_page()
     chapter, section = chapter_intro()
     section_header(chapter, section)
     st.caption(f"当前章节共 {len(BOOK_STRUCTURE[chapter])} 个交互小节，全书共 {sum(len(v) for v in BOOK_STRUCTURE.values())} 个小节。")
